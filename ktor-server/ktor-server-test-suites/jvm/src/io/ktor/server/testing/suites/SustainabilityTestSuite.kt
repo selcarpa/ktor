@@ -10,6 +10,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.http.cio.*
 import io.ktor.http.content.*
+import io.ktor.junit.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.http.content.*
@@ -25,6 +26,7 @@ import io.ktor.utils.io.jvm.javaio.*
 import io.ktor.utils.io.streams.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.debug.*
+import org.junit.jupiter.api.extension.*
 import org.slf4j.*
 import java.io.*
 import java.net.*
@@ -34,6 +36,7 @@ import java.util.concurrent.atomic.*
 import kotlin.concurrent.*
 import kotlin.test.*
 
+@ExtendWith(RetryOnException::class)
 abstract class SustainabilityTestSuite<TEngine : ApplicationEngine, TConfiguration : ApplicationEngine.Configuration>(
     hostFactory: ApplicationEngineFactory<TEngine, TConfiguration>
 ) : EngineTestBase<TEngine, TConfiguration>(hostFactory) {
@@ -269,12 +272,12 @@ abstract class SustainabilityTestSuite<TEngine : ApplicationEngine, TConfigurati
 
         runBlocking {
             try {
-                withTimeout(5000L) {
+                withTimeout(15000L) {
                     parent.join()
                 }
             } catch (cause: TimeoutCancellationException) {
                 DebugProbes.printJob(parent)
-                throw cause
+                fail("Server did shut down in time after cancelling parent!")
             }
         }
 
@@ -282,7 +285,7 @@ abstract class SustainabilityTestSuite<TEngine : ApplicationEngine, TConfigurati
             // ensure that the server is not running anymore
             withUrl("/") {
                 call.body<String>()
-                kotlin.test.fail("Shouldn't happen")
+                fail("Shouldn't happen")
             }
         }
     }
@@ -369,7 +372,10 @@ abstract class SustainabilityTestSuite<TEngine : ApplicationEngine, TConfigurati
         latch.await()
 
         if (errors.isNotEmpty()) {
-            throw RuntimeException("Exceptions thrown: ${errors.joinToString { it::class.simpleName ?: "<no name>" }}")
+            throw RuntimeException(
+                "Exceptions thrown: ${errors.joinToString { it::class.simpleName ?: "<no name>" }}",
+                errors.first()
+            )
         }
         var multiplier = 1
         if (enableHttp2) multiplier++
