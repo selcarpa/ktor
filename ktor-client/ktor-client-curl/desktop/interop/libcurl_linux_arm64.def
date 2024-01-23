@@ -2,6 +2,7 @@ package = libcurl
 headers = curl/curl.h
 headerFilter = curl/*
 
-staticLibraries = libcurl.a
-
-libraryPaths = desktop/interop/linuxArm64/lib
+#staticLibraries = libcurl.so
+#
+#libraryPaths = desktop/interop/linuxArm64/lib
+linkerOpts = -Ldesktop/interop/linuxArm64/lib -lcurl
