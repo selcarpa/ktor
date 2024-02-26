@@ -30,7 +30,7 @@ public abstract class BaseApplicationResponse(
         private set
 
     override val cookies: ResponseCookies by lazy {
-        ResponseCookies(this, call.request.origin.scheme == "https" || call.request.origin.scheme == "wss")
+        ResponseCookies(this)
     }
 
     override fun status(): HttpStatusCode? = _status
@@ -150,6 +150,8 @@ public abstract class BaseApplicationResponse(
                 commitHeaders(content)
                 respondNoContent(content)
             }
+
+            is OutgoingContent.ContentWrapper -> respondOutgoingContent(content.delegate())
         }
         isSent = true
     }

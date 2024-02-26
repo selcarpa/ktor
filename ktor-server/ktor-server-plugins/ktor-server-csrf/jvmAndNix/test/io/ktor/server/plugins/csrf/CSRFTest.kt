@@ -21,14 +21,14 @@ class CSRFTest {
                 allowOrigin("https://localhost:8080")
             }
 
-            assertEquals(200, client.get("/no-csrf").status.value)
+            assertEquals(200, client.post("/no-csrf").status.value)
 
-            client.get("/csrf").let { response ->
+            client.post("/csrf").let { response ->
                 assertEquals(400, response.status.value)
                 assertEquals("Cross-site request validation failed; missing \"Origin\" header", response.bodyAsText())
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers[HttpHeaders.Origin] = "https://127.0.0.1:8080"
             }.let { response ->
                 assertEquals(400, response.status.value)
@@ -38,13 +38,13 @@ class CSRFTest {
                 )
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers[HttpHeaders.Origin] = "https://localhost:8080"
             }.let { response ->
                 assertEquals(200, response.status.value)
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers[HttpHeaders.Referrer] = "http://localhost:8080/redirect/from-here"
             }.let { response ->
                 assertEquals(200, response.status.value)
@@ -59,9 +59,9 @@ class CSRFTest {
                 originMatchesHost()
             }
 
-            assertEquals(200, client.get("/no-csrf").status.value)
+            assertEquals(200, client.post("/no-csrf").status.value)
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers[HttpHeaders.Origin] = "http://localhost:8080"
                 headers[HttpHeaders.Host] = "127.0.0.1:8080"
             }.let { response ->
@@ -73,7 +73,7 @@ class CSRFTest {
                 )
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers[HttpHeaders.Origin] = "http://localhost:8080"
                 headers[HttpHeaders.Host] = "localhost:8080"
             }.let { response ->
@@ -89,12 +89,12 @@ class CSRFTest {
                 checkHeader("X-CSRF") { it == "1" }
             }
 
-            client.get("/csrf").let { response ->
+            client.post("/csrf").let { response ->
                 assertEquals(400, response.status.value)
                 assertEquals("Cross-site request validation failed; missing \"X-CSRF\" header", response.bodyAsText())
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers["X-CSRF"] = "0"
             }.let { response ->
                 assertEquals(400, response.status.value)
@@ -104,7 +104,7 @@ class CSRFTest {
                 )
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers["X-CSRF"] = "1"
             }.let { response ->
                 assertEquals(200, response.status.value)
@@ -128,16 +128,90 @@ class CSRFTest {
                 }
             }
 
-            client.get("/csrf") {
+            client.post("/csrf") {
                 headers[HttpHeaders.Origin] = "http://localhost:8080"
                 headers["X-CSRF"] = "http://localhost:8080".hashCode().toString(32)
             }.let { response ->
                 assertEquals(200, response.status.value)
             }
 
-            client.get("/csrf").let { response ->
+            client.post("/csrf").let { response ->
                 assertEquals(403, response.status.value)
                 assertEquals(customErrorMessage, response.bodyAsText())
+            }
+        }
+    }
+
+    @Test
+    fun ignoresSafeMethods() {
+        testApplication {
+            configureCSRF {
+                originMatchesHost()
+            }
+            val safeMethods = listOf(HttpMethod.Get, HttpMethod.Options, HttpMethod.Head)
+            val invalidRequestWithMethod: (HttpMethod) -> HttpRequestBuilder.() -> Unit = { m ->
+                {
+                    method = m
+                    headers[HttpHeaders.Origin] = "http://localhost:8080"
+                    headers[HttpHeaders.Host] = "127.0.0.1:8080"
+                }
+            }
+
+            for (m in HttpMethod.DefaultMethods - safeMethods.toSet()) {
+                assertEquals(400, client.request("/csrf", invalidRequestWithMethod(m)).status.value)
+            }
+
+            for (m in safeMethods) {
+                assertEquals(200, client.request("/csrf", invalidRequestWithMethod(m)).status.value)
+            }
+        }
+    }
+
+    @Test
+    fun onFailureDefaultResponse() {
+        var errorMessageVariable = ""
+
+        testApplication {
+            configureCSRF {
+                checkHeader("X-CSRF") { csrfHeader ->
+                    request.headers[HttpHeaders.Origin]?.let { origin ->
+                        csrfHeader == origin.hashCode().toString(32)
+                    } == true
+                }
+                onFailure {
+                    errorMessageVariable = it
+                }
+            }
+
+            client.post("/csrf") {
+                headers[HttpHeaders.Origin] = "http://localhost:8080"
+                headers["X-CSRF"] = "http://localhost:8080".hashCode().toString(32)
+            }.let { response ->
+                assertEquals(200, response.status.value)
+            }
+
+            client.post("/csrf").let { response ->
+                val expectedMessage = "missing \"X-CSRF\" header"
+                assertEquals(400, response.status.value)
+                assertEquals("Cross-site request validation failed; $expectedMessage", response.bodyAsText())
+                assertEquals(errorMessageVariable, expectedMessage)
+            }
+        }
+    }
+
+    @Test
+    fun worksWithDefaultPort() {
+        testApplication {
+            configureCSRF {
+                originMatchesHost()
+            }
+
+            client.post("/csrf") {
+                header("Host", "localhost:80")
+                header("Origin", "http://localhost:80")
+            }.let { response ->
+                assertEquals(200, response.status.value)
+                assertEquals("success", response.bodyAsText())
             }
         }
     }
@@ -148,12 +222,15 @@ class CSRFTest {
                 install(CSRF) {
                     csrfOptions()
                 }
-                get {
+                handle {
+                    call.respondText("success")
+                }
+                post {
                     call.respondText("success")
                 }
             }
             route("/no-csrf") {
-                get {
+                handle {
                     call.respondText("success")
                 }
             }
